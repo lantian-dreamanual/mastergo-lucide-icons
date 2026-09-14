@@ -1,0 +1,10 @@
+{
+  "name": "Lucide 图标库",
+  "id": 204498608654129,
+  "api": "1.0.0",
+  "main": "dist/main.js",
+  "ui": "dist/index.html",
+  "editor_type": [
+    "canvas"
+  ]
+}

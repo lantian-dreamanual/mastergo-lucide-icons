@@ -1,0 +1,31 @@
+{
+  "name": "mastergo-lucide-icons",
+  "version": "0.1.0",
+  "main": "index.js",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev:ui & npm run dev:main",
+    "dev:ui": "cross-env TARGET=ui NODE_ENV=development vite build --mode development -w",
+    "dev:main": "cross-env TARGET=main NODE_ENV=development vite build --mode development -w",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "clean:assets": "node -e \"require('fs').rmSync('dist/assets',{recursive:true,force:true})\"",
+    "build": "npm run clean && npm run build:ui && npm run build:main && npm run clean:assets",
+    "build:ui": "cross-env TARGET=ui vite build",
+    "build:main": "cross-env TARGET=main vite build",
+    "sync:icons": "python3 scripts/sync-icons.py"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@vitejs/plugin-vue": "^2.3.4",
+    "cross-env": "^7.0.3",
+    "typescript": "^5.7.2",
+    "vite": "^2.9.18",
+    "vite-plugin-singlefile": "^0.7.1"
+  },
+  "dependencies": {
+    "@mastergo/plugin-typings": "^2.19.2",
+    "vue": "^3.2.47"
+  }
+}
