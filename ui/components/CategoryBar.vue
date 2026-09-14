@@ -1,20 +1,16 @@
 <template>
-  <div class="category-bar" :class="{ collapsed }">
-    <div v-if="!collapsed" ref="scrollEl" class="cat-scroll">
+  <div class="sidebar">
+    <div class="cat-list">
       <button
         v-for="cat in items"
         :key="cat.id"
-        class="cat-chip"
+        class="cat-item"
         :class="{ active: cat.id === modelValue }"
         @click="$emit('update:modelValue', cat.id)"
       >
         {{ cat.display }}
       </button>
     </div>
-
-    <button class="toggle-btn" :title="collapsed ? '展开分类条' : '收起分类条'" @click="toggle">
-      {{ collapsed ? '▸' : '▾' }}
-    </button>
   </div>
 </template>
 
@@ -26,84 +22,79 @@ import type { CategoryInfo } from '@lib/icons'
 const props = defineProps<{
   categories: CategoryInfo[]
   modelValue: string
-  collapsed: boolean
 }>()
 
-const emit = defineEmits<{
+defineEmits<{
   (e: 'update:modelValue', value: string): void
-  (e: 'toggle'): void
 }>()
 
-/** 「全部」 + 官方分类，中文双语显示（M2-A） */
+/** 「全部」 + 官方分类，分类名只显示中文（M2-A + M2-B 重构） */
 const items = computed<Array<{ id: string; display: string }>>(() => [
   { id: 'all', display: '全部' },
-  ...props.categories.map((c) => ({ id: c.id, display: categoryDisplayName(c) })),
+  ...props.categories.map((c) => {
+    const zh = categoryDisplayName(c)
+    // 只取中文部分，不带英文
+    const zhOnly = zh.split(' ')[0]
+    return { id: c.id, display: zhOnly }
+  }),
 ])
-
-function toggle(): void {
-  emit('toggle')
-}
 </script>
 
 <style scoped>
-.category-bar {
+.sidebar {
+  width: 84px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--mg-border);
+  background: var(--mg-bg);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+/* 细滚动条 */
+.sidebar::-webkit-scrollbar {
+  width: 3px;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--mg-border);
+  border-radius: 2px;
+}
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cat-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.cat-item {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #e5e3db;
-  background: #ffffff;
-}
-.cat-scroll {
-  flex: 1;
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
-  padding: 6px 0 6px 8px;
-  -webkit-overflow-scrolling: touch;
-}
-.cat-chip {
-  display: inline-block;
-  margin-right: 6px;
-  padding: 4px 10px;
-  border: 1px solid #d3d1c7;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #5f5e5a;
+  padding: 6px 10px;
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--mg-text-secondary);
   cursor: pointer;
   font-family: inherit;
   font-size: 12px;
+  text-align: left;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.12s, color 0.12s;
 }
-.cat-chip:hover {
-  border-color: #185fa5;
-  color: #185fa5;
+
+.cat-item:hover {
+  background: var(--mg-bg-hover);
+  color: var(--mg-text);
 }
-.cat-chip.active {
-  border-color: #185fa5;
-  background: #185fa5;
-  color: #ffffff;
-}
-.toggle-btn {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  margin: 0 4px 0 0;
-  padding: 0;
-  border: 1px solid #d3d1c7;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #5f5e5a;
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-}
-.toggle-btn:hover {
-  background: #f5f4ef;
-}
-.collapsed {
-  padding: 0;
-  border-bottom: none;
-}
-.collapsed .toggle-btn {
-  margin: 2px;
+
+.cat-item.active {
+  background: var(--mg-primary-bg);
+  color: var(--mg-primary);
+  border-left-color: var(--mg-primary);
+  font-weight: 600;
 }
 </style>

@@ -137,6 +137,7 @@ onBeforeUnmount(() => {
   position: relative;
   height: 100%;
   overflow: hidden;
+  background: var(--mg-bg, #fafafa);
 }
 .grid-scroll {
   height: 100%;
@@ -163,15 +164,16 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 72px;
+  height: 56px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--mg-radius-md, 8px);
   cursor: grab;
   user-select: none;
+  transition: background 0.1s, border-color 0.1s;
 }
 .grid-cell:hover {
-  border-color: #d8d6cf;
-  background: #f5f4ef;
+  background: var(--mg-bg-hover, #f0f0f0);
+  border-color: var(--mg-border, #e5e3db);
 }
 .grid-cell:active {
   cursor: grabbing;
@@ -204,6 +206,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   pointer-events: none;
 }
+
 .empty-state {
   position: absolute;
   inset: 0;
@@ -212,19 +215,24 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #888780;
+  color: var(--mg-text-tertiary, #b0aea6);
 }
 .empty-state p {
   margin: 0;
   font-size: 13px;
 }
 .empty-state button {
-  padding: 6px 12px;
-  border: 1px solid #d3d1c7;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #5f5e5a;
+  padding: 5px 12px;
+  border: 1px solid var(--mg-border, #e5e3db);
+  border-radius: var(--mg-radius-sm, 6px);
+  background: var(--mg-bg, #ffffff);
+  color: var(--mg-text-secondary, #888780);
   cursor: pointer;
   font-size: 12px;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+.empty-state button:hover {
+  background: var(--mg-bg-hover, #f0f0f0);
 }
 </style>

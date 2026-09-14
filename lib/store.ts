@@ -23,8 +23,6 @@ export interface UiState {
   category: string
   /** 样式条是否折叠（F2.7） */
   styleBarCollapsed: boolean
-  /** 分类条是否收起（F1.7） */
-  categoryCollapsed: boolean
 }
 
 const STYLE_KEY = 'lucide-mastergo.style'
@@ -40,7 +38,6 @@ export const DEFAULT_STYLE: StyleState = {
 export const DEFAULT_UI: UiState = {
   category: 'all',
   styleBarCollapsed: false,
-  categoryCollapsed: false,
 }
 
 /** 内存降级存储（data: URL 下 localStorage 不可用时兜底） */
