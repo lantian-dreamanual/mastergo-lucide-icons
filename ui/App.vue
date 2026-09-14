@@ -120,6 +120,10 @@ function handlePluginMessage(event: MessageEvent): void {
   if (msg.type === PluginMessage.ERROR) {
     console.error('[Lucide 插件] 主线程报错', msg.data)
   }
+  if (msg.type === PluginMessage.THEME_CHANGE) {
+    const theme = msg.data as 'dark' | 'light'
+    document.documentElement.className = theme
+  }
 }
 
 onMounted(() => {

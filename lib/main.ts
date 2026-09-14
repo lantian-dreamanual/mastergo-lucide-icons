@@ -21,6 +21,12 @@ const PANEL_HEIGHT = 664
 
 mg.showUI(__html__, { width: PANEL_WIDTH, height: PANEL_HEIGHT })
 
+// 主题同步：启动时发送当前主题，监听变更实时通知 UI
+sendMsgToUI({ type: PluginMessage.THEME_CHANGE, data: mg.themeColor })
+mg.on('themechange', (theme: 'dark' | 'light') => {
+  sendMsgToUI({ type: PluginMessage.THEME_CHANGE, data: theme })
+})
+
 /** 可容纳子节点的容器类型（F3.2：选中 Frame/Group 时插入其内居中） */
 type ContainerNode = FrameNode | GroupNode
 
