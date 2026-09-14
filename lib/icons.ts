@@ -5,12 +5,74 @@
  *  - 名字与自身 tags 重叠 83% 为零 → 名字索引与 tag 索引必须同时建、缺一不可
  *  - 官方旧名 aliases 264 个全部 deprecated → 必须并入搜索，命中时提示「已改名为 xxx」（F1.3）
  *  - 搜索维度：图标名（- 分词 + 子串）、官方 tag、分类名、aliases；搜索与分类叠加取交集（F1.4）
+ *  - 中文搜索（M2-A）：中文词 → 词典查英文候选词 → 走既有名字/tag 索引 → 合并去重
  *
  * 本文件不依赖 mg，UI 侧与（如需）主线程均可复用。
  */
 
 import dataset from '../data/lucide-icons.json'
+import zhDictRaw from '../data/zh-dict.json'
 import type { IconNode } from './svg'
+
+/** 中文搜索词典（M2-A）：中文词 → 英文词数组 */
+const zhDict = zhDictRaw as Record<string, string[]>
+
+/** 42 分类的中文显示名（M2-A：分类条双语显示） */
+const categoryZhMap: Record<string, string> = {
+  'text': '文本格式',
+  'design': '设计',
+  'accessibility': '无障碍',
+  'medical': '医疗',
+  'account': '账户与访问',
+  'social': '社交',
+  'science': '科学',
+  'multimedia': '多媒体',
+  'notifications': '通知',
+  'home': '主页',
+  'connectivity': '连接',
+  'devices': '设备',
+  'time': '时间与日历',
+  'travel': '旅行',
+  'layout': '布局',
+  'transportation': '交通',
+  'development': '编程与开发',
+  'food-beverage': '餐饮',
+  'gaming': '游戏',
+  'math': '数学',
+  'communication': '通信',
+  'buildings': '建筑',
+  'tools': '工具',
+  'photography': '摄影',
+  'files': '文件',
+  'mail': '邮件',
+  'arrows': '箭头',
+  'shapes': '形状',
+  'sports': '运动',
+  'people': '人物',
+  'shopping': '购物',
+  'finance': '金融',
+  'emoji': '表情',
+  'navigation': '导航与地点',
+  'nature': '自然',
+  'animals': '动物',
+  'security': '安全',
+  'weather': '天气',
+  'charts': '图表',
+  'cursors': '光标',
+  'sustainability': '可持续发展',
+  'seasons': '季节',
+}
+
+/** 获取分类的中文显示名（无映射时回退到英文 title） */
+export function categoryZhTitle(catId: string): string {
+  return categoryZhMap[catId] ?? ''
+}
+
+/** 获取分类的双语显示名（如「文本格式 Text formatting」） */
+export function categoryDisplayName(cat: CategoryInfo): string {
+  const zh = categoryZhMap[cat.id]
+  return zh ? `${zh} ${cat.title}` : cat.title
+}
 
 /** 数据集版本信息（PRD F4.2：面板底部展示） */
 export interface DataVersion {
@@ -164,6 +226,34 @@ function tokenizeName(name: string): string[] {
   return name.split(/[-_\s]+/).filter(Boolean)
 }
 
+/** 检测字符串是否包含中文字符 */
+function containsChinese(s: string): boolean {
+  return /[\u4e00-\u9fff]/.test(s)
+}
+
+/**
+ * 中文查询 → 英文候选词数组（M2-A）。
+ * 策略：精确匹配 key + 子串匹配（query 包含 key 或 key 包含 query）。
+ */
+function chineseToEnglish(query: string): string[] {
+  const trimmed = query.trim()
+  const words: string[] = []
+
+  // 精确匹配
+  const exact = zhDict[trimmed]
+  if (exact) words.push(...exact)
+
+  // 子串匹配（跳过已精确匹配的 key）
+  for (const [key, vals] of Object.entries(zhDict)) {
+    if (key === trimmed) continue
+    if (key.includes(trimmed) || trimmed.includes(key)) {
+      words.push(...vals)
+    }
+  }
+
+  return [...new Set(words)]
+}
+
 /**
  * 核心搜索：
  *  - query 为空 → 只按分类过滤
@@ -194,6 +284,34 @@ export function searchIcons(options: SearchOptions): SearchResult {
 
   const matched = new Set<number>()
   let aliasHit: string | null = null
+
+  // 中文搜索（M2-A）：查词典得英文候选词 → 走名字/tag 索引
+  if (containsChinese(q)) {
+    const englishWords = chineseToEnglish(q)
+    for (const word of englishWords) {
+      const w = word.toLowerCase()
+      // 名字子串 + 分词匹配
+      for (const i of candidates) {
+        if (matched.has(i)) continue
+        const name = index.entries[i].name.toLowerCase()
+        if (name.includes(w)) {
+          matched.add(i)
+          continue
+        }
+        const parts = tokenizeName(index.entries[i].name)
+        if (queryPartsMatch(parts, w)) {
+          matched.add(i)
+        }
+      }
+      // tag 索引
+      const tagSet = index.tagToIndices.get(w)
+      if (tagSet) {
+        for (const i of tagSet) {
+          if (candidates.includes(i)) matched.add(i)
+        }
+      }
+    }
+  }
 
   // 名字子串 + 分词匹配
   for (const i of candidates) {

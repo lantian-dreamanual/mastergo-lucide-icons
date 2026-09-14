@@ -6,7 +6,7 @@
         ref="searchEl"
         v-model="query"
         type="text"
-        placeholder="搜索图标名或关键词（Esc 清空）"
+        placeholder="搜索图标名 / 关键词 / 中文（Esc 清空）"
         class="search"
         @keydown.esc="query = ''"
       />

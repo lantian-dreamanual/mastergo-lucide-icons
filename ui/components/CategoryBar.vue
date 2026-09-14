@@ -8,7 +8,7 @@
         :class="{ active: cat.id === modelValue }"
         @click="$emit('update:modelValue', cat.id)"
       >
-        {{ cat.title }}
+        {{ cat.display }}
       </button>
     </div>
 
@@ -20,6 +20,7 @@
 
 <script lang="ts" setup>
 import { computed } from 'vue'
+import { categoryDisplayName } from '@lib/icons'
 import type { CategoryInfo } from '@lib/icons'
 
 const props = defineProps<{
@@ -33,10 +34,10 @@ const emit = defineEmits<{
   (e: 'toggle'): void
 }>()
 
-/** 「全部」 + 官方分类，单个占位（F1.2：42 + 全部） */
-const items = computed<Array<CategoryInfo & { id: string }>>(() => [
-  { id: 'all', title: '全部' },
-  ...props.categories,
+/** 「全部」 + 官方分类，中文双语显示（M2-A） */
+const items = computed<Array<{ id: string; display: string }>>(() => [
+  { id: 'all', display: '全部' },
+  ...props.categories.map((c) => ({ id: c.id, display: categoryDisplayName(c) })),
 ])
 
 function toggle(): void {
