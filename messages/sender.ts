@@ -4,8 +4,6 @@ export enum PluginMessage {
   INSERT_RESULT = 'insert-result',
   /** 主线程侧捕获到的异常 */
   ERROR = 'error',
-  /** 主题变更通知（dark / light） */
-  THEME_CHANGE = 'theme-change',
 }
 
 // UI 发出的消息

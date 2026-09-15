@@ -40,7 +40,7 @@
 
         <!-- 底部版本信息（F4.2 + M2-B） -->
         <footer class="foot">
-          <span>{{ totalCount }} 个图标 · lucide {{ version.sha }} · {{ updateDate }}</span>
+          <span>{{ totalCount }} 个图标 · Lucide v1.46.0 · {{ updateDate }}</span>
         </footer>
       </div>
     </div>
@@ -119,10 +119,6 @@ function handlePluginMessage(event: MessageEvent): void {
   if (!msg || !msg.type) return
   if (msg.type === PluginMessage.ERROR) {
     console.error('[Lucide 插件] 主线程报错', msg.data)
-  }
-  if (msg.type === PluginMessage.THEME_CHANGE) {
-    const theme = msg.data as 'dark' | 'light'
-    document.documentElement.className = theme
   }
 }
 
