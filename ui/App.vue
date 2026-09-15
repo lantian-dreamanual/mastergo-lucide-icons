@@ -103,12 +103,11 @@ const searchResult = computed(() => searchIcons({ query: query.value, category: 
 const visibleIcons = computed(() => searchResult.value.icons)
 const aliasHit = computed(() => searchResult.value.aliasHit)
 
-/** 底部版本信息：用数据集的 commit 短哈希，可回溯到具体上游快照 */
+/** 底部信息行：第三方许可署名（ISC 要求随副本出现）+ 数据集版本，可回溯到具体上游快照 */
 const versionLabel = computed(() => {
-  const parts = [`${totalCount} 个图标`]
-  if (version?.sha) parts.push(`Lucide main@${version.sha}`)
-  const date = version?.upstreamDate ? version.upstreamDate.slice(0, 10) : ''
-  if (date) parts.push(`${date} 更新`)
+  const parts = [`图标来自 Lucide (ISC)`]
+  if (version?.sha) parts.push(`main@${version.sha}`)
+  parts.push(`${totalCount} 个图标`)
   return parts.join(' · ')
 })
 
