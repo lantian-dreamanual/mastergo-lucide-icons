@@ -1,9 +1,16 @@
 {
   "name": "mastergo-lucide-icons",
   "version": "0.1.0",
+  "description": "MasterGo 插件：把 Lucide 图标集导入画布，中英文可搜、样式可调、导入为可编辑矢量图层",
   "main": "index.js",
   "license": "MIT",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lantian-dreamanual/mastergo-lucide-icons.git"
+  },
+  "homepage": "https://github.com/lantian-dreamanual/mastergo-lucide-icons#readme",
+  "author": "lantian-dreamanual",
   "scripts": {
     "dev": "npm run dev:ui & npm run dev:main",
     "dev:ui": "cross-env TARGET=ui NODE_ENV=development vite build --mode development -w",

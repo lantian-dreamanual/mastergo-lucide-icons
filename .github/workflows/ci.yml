@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      # 构建通过 ≠ 类型正确：esbuild 只剥类型不校验，所以这一步不能省
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 构建
+        run: npm run build
+
+      # 插件面板是 origin 为 null 的 iframe：外链资源加载不到，产物必须是自包含的
+      - name: 校验产物
+        run: |
+          node -e '
+          const fs = require("fs");
+          const path = require("path");
+
+          const expected = ["index.html", "main.js"];
+          const actual = fs.readdirSync("dist").sort();
+          if (actual.join(",") !== expected.slice().sort().join(",")) {
+            console.error("✗ dist/ 必须恰好包含 index.html 与 main.js，实际：" + actual.join(", "));
+            process.exit(1);
+          }
+
+          const html = fs.readFileSync(path.join("dist", "index.html"), "utf8");
+          const links = html.match(/(?:src|href)="[^"]*"/g) || [];
+          if (links.length) {
+            console.error("✗ index.html 里出现了外链资源：" + links.join(", "));
+            process.exit(1);
+          }
+
+          const bytes = expected.reduce(
+            (n, f) => n + fs.statSync(path.join("dist", f)).size, 0
+          );
+          const kb = Math.round(bytes / 1024);
+          console.log("✓ 产物 2 个文件、0 外链，" + kb + " KB");
+          if (kb > 900) {
+            console.error("✗ 体积超出预算（设计目标 800KB）");
+            process.exit(1);
+          }
+          '
