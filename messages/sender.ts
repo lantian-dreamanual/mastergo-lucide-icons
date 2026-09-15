@@ -4,6 +4,8 @@ export enum PluginMessage {
   INSERT_RESULT = 'insert-result',
   /** 主线程侧捕获到的异常 */
   ERROR = 'error',
+  /** 回应 LOAD_STATE：带回上次持久化的状态（从未存过则为 null） */
+  STATE_LOADED = 'state-loaded',
 }
 
 // UI 发出的消息
@@ -16,6 +18,10 @@ export enum UIMessage {
    *  - source = 'click'：不带坐标，主线程按 F3.2 决定落点（无选中 → 视口中心；选中容器 → 容器内居中）。
    */
   INSERT_ICON = 'insert-icon',
+  /** 面板启动时请求上次持久化的样式与界面状态（F3.4） */
+  LOAD_STATE = 'load-state',
+  /** 样式/界面状态变化，请求落盘（F3.4） */
+  SAVE_STATE = 'save-state',
 }
 
 type MessageType = {
@@ -47,7 +53,13 @@ export interface InsertResult {
   source: 'drag' | 'click'
   elapsed: number
   imported: { width: number; height: number } | null
+  /**
+   * 用户可读的失败原因（ok=false 时有值），直接展示在面板 toast 里。
+   * 措辞要求：说清「哪个图标 + 怎么办」，不要直接把异常堆栈丢给用户。
+   */
   error?: string
+  /** 原始异常文本，仅用于排查，UI 只写 console 不外显 */
+  errorDetail?: string
   /** 落点：drag 来自 drop 事件；click 来自 F3.2 决策 */
   drop: {
     x: number | null
@@ -57,16 +69,18 @@ export interface InsertResult {
   }
 }
 
-/**
- * 向 UI 发送消息
- */
+/** 回应 LOAD_STATE 的载荷 */
+export interface StateLoadedPayload {
+  /** 上次持久化的原始状态；从未存过或读取失败时为 null */
+  state: unknown
+}
+
+/** 向 UI 发送消息 */
 export const sendMsgToUI = (data: MessageType) => {
   mg.ui.postMessage(data, '*')
 }
 
-/**
- * 向插件发送消息
- */
+/** 向插件发送消息 */
 export const sendMsgToPlugin = (data: MessageType) => {
   parent.postMessage(data, '*')
 }

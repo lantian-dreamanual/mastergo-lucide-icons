@@ -13,8 +13,16 @@
 
 用法：
     python3 scripts/sync-icons.py                        # 同步到最新 main
-    python3 scripts/sync-icons.py --from-tarball <path>  # 离线：用本地 tarball（版本号以 API 查询为准）
+    python3 scripts/sync-icons.py --sha=<sha> [--date=<iso>]
+                                                         # 指定版本，跳过 GitHub API
+                                                         # （API 限流时用这个）
+    python3 scripts/sync-icons.py --from-tarball=<path>  # 离线：用本地 tarball（版本号仍查 API）
+    python3 scripts/sync-icons.py --sha=<sha> --from-tarball=<path> [--date=<iso>]
+                                                         # 完全离线：自带版本号，不发任何请求
     python3 scripts/sync-icons.py --check                # 只校验现有产物，不联网
+
+注：GitHub API 有匿名限流（60 次/小时），限流时 403。codeload 下载不受影响，
+    所以「curl 下 tarball + --sha 指定版本」是限流期间的可靠组合。
 """
 
 import http.client
@@ -45,6 +53,14 @@ GEOM_ATTRS = ("d", "cx", "cy", "r", "x", "y", "width", "height",
               "x1", "y1", "x2", "y2", "points", "rx", "ry")
 
 
+def die(msg: str, hint: str = ""):
+    """网络/环境类致命错误（与结构校验失败区分开，避免误导）。"""
+    print(f"\n[sync-icons] 错误：{msg}", file=sys.stderr)
+    if hint:
+        print(f"[sync-icons] {hint}", file=sys.stderr)
+    sys.exit(1)
+
+
 def fetch(url: str, attempts: int = 3) -> bytes:
     """带重试的 GET。codeload 大文件易断流（IncompleteRead），必须重试。"""
     last = None
@@ -59,7 +75,12 @@ def fetch(url: str, attempts: int = 3) -> bytes:
             print(f"[sync-icons] 网络请求失败（第 {i}/{attempts} 次）：{e}", file=sys.stderr)
             if i < attempts:
                 time.sleep(3)
-    fail(f"网络请求重试 {attempts} 次仍失败：{last}")
+    die(
+        f"网络请求重试 {attempts} 次仍失败：{last}",
+        "这是网络问题，不是上游结构变更。若为 GitHub API 403 限流，请改用 "
+        "`--sha=<sha>` 指定版本以跳过 API；大文件断流可先用 "
+        "`curl -L -C - --retry 3 <tarball-url> -o x.tar.gz` 下载后配 `--from-tarball=x.tar.gz`。",
+    )
 
 
 def parse_svg(svg_text: str):
@@ -80,22 +101,32 @@ def parse_svg(svg_text: str):
     return nodes
 
 
-def fail(msg: str):
+def fail_structure(msg: str):
     print(f"\n[sync-icons] 结构校验失败：{msg}", file=sys.stderr)
     print("[sync-icons] 上游结构可能已变更（参见 PRD F4.3 / 风险 R4），禁止生成残缺数据集。", file=sys.stderr)
     sys.exit(1)
 
 
-def download_and_parse(tarball_path=None):
+def download_and_parse(tarball_path=None, sha_arg=None, date_arg=None):
     # 1. 固定版本：先拿 main 的 commit SHA，再下该 SHA 的 tarball（可复现，PRD F4.2）
-    try:
-        commit = json.loads(fetch(f"https://api.github.com/repos/{REPO}/commits/main"))
-    except (urllib.error.URLError, OSError) as e:
-        fail(f"无法访问 GitHub API：{e}")
-    sha = commit["sha"]
-    short = sha[:7]
-    date = commit["commit"]["committer"]["date"]
-    print(f"[sync-icons] 上游版本 main@{short}（{date}）")
+    if sha_arg:
+        # GitHub API 匿名限流 60 次/小时，限流期间用 --sha 直接指定版本
+        sha = sha_arg.strip()
+        short = sha[:7]
+        date = (date_arg or "").strip()
+        print(f"[sync-icons] 指定版本 {short}（{date or '未提供日期'}）")
+    else:
+        try:
+            commit = json.loads(fetch(f"https://api.github.com/repos/{REPO}/commits/main"))
+        except (urllib.error.URLError, OSError) as e:
+            die(
+                f"无法访问 GitHub API：{e}",
+                "若为 403 限流，请改用 `--sha=<sha> [--date=<iso>]` 指定版本后重跑。",
+            )
+        sha = commit["sha"]
+        short = sha[:7]
+        date = commit["commit"]["committer"]["date"]
+        print(f"[sync-icons] 上游版本 main@{short}（{date}）")
 
     if tarball_path:
         print(f"[sync-icons] 使用本地 tarball：{tarball_path}")
@@ -133,18 +164,18 @@ def download_and_parse(tarball_path=None):
 def build_dataset(version, svgs, metas, cat_titles):
     # ---- 结构校验（F4.3：显式失败）----
     if not (MIN_ICONS <= len(svgs) <= MAX_ICONS):
-        fail(f"图标数 {len(svgs)} 超出合理区间 [{MIN_ICONS}, {MAX_ICONS}]")
+        fail_structure(f"图标数 {len(svgs)} 超出合理区间 [{MIN_ICONS}, {MAX_ICONS}]")
     if len(svgs) != len(metas):
-        fail(f"svg 数 {len(svgs)} 与元数据 json 数 {len(metas)} 不一致")
+        fail_structure(f"svg 数 {len(svgs)} 与元数据 json 数 {len(metas)} 不一致")
     if len(cat_titles) < MIN_CATEGORIES:
-        fail(f"分类标题文件仅 {len(cat_titles)} 个（阈值 {MIN_CATEGORIES}），categories 结构可能已变更")
+        fail_structure(f"分类标题文件仅 {len(cat_titles)} 个（阈值 {MIN_CATEGORIES}），categories 结构可能已变更")
     bad_meta = [n for n, m in metas.items() if not isinstance(m, dict)
                 or "tags" not in m or "categories" not in m]
     if bad_meta:
-        fail(f"以下图标元数据缺少 tags/categories 键（结构已变更）：{bad_meta[:5]} ...")
+        fail_structure(f"以下图标元数据缺少 tags/categories 键（结构已变更）：{bad_meta[:5]} ...")
     orphan_cats = {c for m in metas.values() for c in (m.get("categories") or [])} - set(cat_titles)
     if orphan_cats:
-        fail(f"元数据引用了没有标题文件的分类：{sorted(orphan_cats)}")
+        fail_structure(f"元数据引用了没有标题文件的分类：{sorted(orphan_cats)}")
 
     # ---- 组装 ----
     tag_dict, tag_idx = [], {}
@@ -166,7 +197,7 @@ def build_dataset(version, svgs, metas, cat_titles):
 
         ns = parse_svg(svgs[name])
         if not ns:
-            fail(f"图标 {name} 解析不到任何图形节点")
+            fail_structure(f"图标 {name} 解析不到任何图形节点")
 
         tids = []
         for t in tags:
@@ -188,9 +219,9 @@ def build_dataset(version, svgs, metas, cat_titles):
 
     n = len(names)
     if no_tags / n > 1 - MIN_TAGS_COVERAGE:
-        fail(f"tags 覆盖率 {1 - no_tags / n:.1%} 低于阈值 {MIN_TAGS_COVERAGE:.0%}")
+        fail_structure(f"tags 覆盖率 {1 - no_tags / n:.1%} 低于阈值 {MIN_TAGS_COVERAGE:.0%}")
     if no_cats / n > 1 - MIN_CATS_COVERAGE:
-        fail(f"categories 覆盖率 {1 - no_cats / n:.1%} 低于阈值 {MIN_CATS_COVERAGE:.0%}")
+        fail_structure(f"categories 覆盖率 {1 - no_cats / n:.1%} 低于阈值 {MIN_CATS_COVERAGE:.0%}")
 
     dataset = {
         "version": {
@@ -232,10 +263,20 @@ def main():
         return
 
     tarball = None
+    sha_arg = None
+    date_arg = None
+    known = ("--from-tarball=", "--sha=", "--date=")
     for a in sys.argv[1:]:
         if a.startswith("--from-tarball="):
             tarball = a.split("=", 1)[1]
-    version, svgs, metas, cat_titles = download_and_parse(tarball)
+        elif a.startswith("--sha="):
+            sha_arg = a.split("=", 1)[1]
+        elif a.startswith("--date="):
+            date_arg = a.split("=", 1)[1]
+        elif a.startswith("--") and not a.startswith(known):
+            # 防止把 --shas=xxx 这类拼写错误静默忽略、又去撞限流的 API
+            print(f"[sync-icons] 警告：未识别的参数 {a}（已忽略）", file=sys.stderr)
+    version, svgs, metas, cat_titles = download_and_parse(tarball, sha_arg, date_arg)
     dataset = build_dataset(version, svgs, metas, cat_titles)
     raw = write_out(dataset)
 

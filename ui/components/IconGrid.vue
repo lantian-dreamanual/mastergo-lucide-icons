@@ -2,11 +2,12 @@
   <div class="grid-root">
     <div ref="scrollEl" class="grid-scroll" @scroll.passive="onScroll">
       <div class="grid-spacer" :style="{ height: totalHeight + 'px' }">
-        <div class="grid-window" :style="{ transform: `translateY(${startY}px)` }">
+        <div class="grid-window" :style="windowStyle">
           <div
             v-for="icon in visibleIcons"
             :key="icon.name"
             class="grid-cell"
+            :style="cellStyle"
             :title="icon.name"
             draggable="true"
             @dragstart="handleDragStart($event, icon)"
@@ -31,10 +32,33 @@
 
 <script lang="ts" setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { CSSProperties } from 'vue'
 import { buildSvg } from '@lib/svg'
 import type { IconEntry } from '@lib/icons'
 import type { StyleState } from '@lib/store'
 import { sendMsgToPlugin, UIMessage, type InsertRequest } from '@messages/sender'
+
+/**
+ * 虚拟滚动网格（拖拽 + 点击导入）。
+ *
+ * ## ⚠️ 几何常量是唯一真相源
+ * 下面这几个常量同时驱动两件事：① 注入到 CSS（列数/间距/内边距/格子高）
+ * ② 滚动数学（行高、第一条可见行、渲染行数）。
+ *
+ * 之前这里踩过一次：CSS 里格子是 56px 高、间距 6px（实际行距 62px），
+ * 但 TS 里按 CELL_H = 72 算，于是滚过约 250 个图标后视口底部开始白屏、
+ * 滚动条也偏长 16%。**改动任何一个数值，两边必须同时生效** —— 靠的就是
+ * 只在这里定义、其余地方一律引用，不要再往 CSS 里写死像素值。
+ */
+const COLS = 5
+/** 单格高度 */
+const CELL_H = 56
+/** 格子间距（grid gap） */
+const GAP = 6
+/** 网格容器内边距 */
+const PAD = 6
+/** 单行占位高度 = 格子高 + 行间距 */
+const ROW_H = CELL_H + GAP
 
 const props = defineProps<{
   icons: IconEntry[]
@@ -45,30 +69,43 @@ const emit = defineEmits<{
   (e: 'clear-filters'): void
 }>()
 
-const CELL_W = 72
-const CELL_H = 72
-const COLS = 5
-const ROWS = 6
-
 const scrollEl = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
 const viewportH = ref(480)
 const hovered = ref<string | null>(null)
 
+/** 格子高度直接由 TS 常量下发给每个格子；CSS 里不再另写一份（避免两处漂移） */
+const cellStyle: CSSProperties = { height: `${CELL_H}px` }
+
+const windowStyle = computed<CSSProperties>(() => ({
+  transform: `translateY(${startY.value}px)`,
+  gridTemplateColumns: `repeat(${COLS}, 1fr)`,
+  gap: `${GAP}px`,
+  padding: `${PAD}px`,
+}))
+
+/**
+ * 第一条可见行（0 基）。
+ * 内容从 PAD 之后才开始，所以先减 PAD 再除以行高 —— 否则每行会累积一个
+ * 恒定偏移，滚到后面同样会露白。
+ */
+const firstRow = computed(() => Math.max(0, Math.floor((scrollTop.value - PAD) / ROW_H)))
+
+/** 渲染行数 = 视口能容纳的行数 + 1 行缓冲（滚动时不露白） */
+const rowsToRender = computed(() => Math.ceil(viewportH.value / ROW_H) + 1)
+
 const visibleIcons = computed(() => {
-  const first = Math.max(0, Math.floor(scrollTop.value / CELL_H) * COLS)
-  const count = ROWS * COLS + COLS // 上下各多渲染一列，滚动不露白
-  return props.icons.slice(first, first + count)
+  const first = firstRow.value * COLS
+  return props.icons.slice(first, first + rowsToRender.value * COLS)
 })
 
+/** 占位高度 = PAD + 行数×格子高 + 行间距×(行数-1) + PAD = 行数×ROW_H + PAD */
 const totalHeight = computed(() => {
-  const rows = Math.ceil(props.icons.length / COLS)
-  return Math.max(rows * CELL_H, viewportH.value)
+  const rows = Math.max(1, Math.ceil(props.icons.length / COLS))
+  return Math.max(rows * ROW_H + PAD, viewportH.value)
 })
 
-const startY = computed(() => {
-  return Math.floor(scrollTop.value / CELL_H) * CELL_H
-})
+const startY = computed(() => firstRow.value * ROW_H)
 
 function previewSvg(icon: IconEntry): string {
   return buildSvg({
@@ -105,7 +142,13 @@ function handleDragStart(event: DragEvent, icon: IconEntry): void {
 function handleDragEnd(event: DragEvent, icon: IconEntry): void {
   // pluginDrop 是 MasterGo 约定字段：带它就不走 mg.ui.onmessage，而是触发主线程 drop 事件
   parent.postMessage(
-    { pluginDrop: { clientX: event.clientX, clientY: event.clientY, dropMetadata: currentRequest(icon, 'drag') } },
+    {
+      pluginDrop: {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        dropMetadata: currentRequest(icon, 'drag'),
+      },
+    },
     '*'
   )
 }
@@ -114,8 +157,22 @@ function handleClick(icon: IconEntry): void {
   sendMsgToPlugin({ type: UIMessage.INSERT_ICON, data: currentRequest(icon, 'click') })
 }
 
+/** 视口高度随面板尺寸变化，用 ResizeObserver 跟随（否则渲染行数会算少、滚动露白） */
+function measure(): void {
+  const el = scrollEl.value
+  if (!el) return
+  const h = el.clientHeight
+  if (h > 0) viewportH.value = h
+}
+
+let observer: ResizeObserver | null = null
+
 onMounted(() => {
-  if (scrollEl.value) viewportH.value = scrollEl.value.clientHeight
+  measure()
+  if (typeof ResizeObserver !== 'undefined' && scrollEl.value) {
+    observer = new ResizeObserver(measure)
+    observer.observe(scrollEl.value)
+  }
 })
 
 // 切换分类/搜索后，列表内容变化，必须重置滚动位置（否则残留 scrollTop 会让可视窗口越界变空）
@@ -128,6 +185,10 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
   scrollEl.value = null
 })
 </script>
@@ -154,17 +215,15 @@ onBeforeUnmount(() => {
   top: 0;
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
-  padding: 6px;
   box-sizing: border-box;
+  will-change: transform;
 }
 .grid-cell {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 56px;
+  /* 高度由 :style 从 TS 常量注入（见 cellStyle），此处不写死值 */
   border: 1px solid transparent;
   border-radius: var(--mg-radius-md, 8px);
   cursor: grab;

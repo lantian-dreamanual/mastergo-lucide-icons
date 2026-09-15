@@ -2,6 +2,14 @@
 <html>
   <head>
     <meta charset="utf-8" />
+    <!--
+      声明可用的配色方案：让浏览器知道本页面同时支持亮/暗，于是
+      ① 滚动条、原生控件（range / color / checkbox）会跟着系统外观走，
+         深色面板下不再出现浅色滚动条；
+      ② 页面默认底色在脚本执行前就是深色，避免插件打开瞬间的白色闪屏。
+      面板自身的配色在 ui/App.vue 的 prefers-color-scheme 分支里。
+    -->
+    <meta name="color-scheme" content="light dark" />
     <style>
       html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
     </style>

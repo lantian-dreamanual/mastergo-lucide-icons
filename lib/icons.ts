@@ -7,6 +7,9 @@
  *  - 搜索维度：图标名（- 分词 + 子串）、官方 tag、分类名、aliases；搜索与分类叠加取交集（F1.4）
  *  - 中文搜索（M2-A）：中文词 → 词典查英文候选词 → 走既有名字/tag 索引 → 合并去重
  *
+ * 性能约定：所有「按名字」的重复计算（小写化、分词）都在 buildIndex 时预计算，
+ * 搜索热路径里只做比较，不做字符串切分 —— 输入框是逐字触发的，这个差别很实际。
+ *
  * 本文件不依赖 mg，UI 侧与（如需）主线程均可复用。
  */
 
@@ -63,15 +66,15 @@ const categoryZhMap: Record<string, string> = {
   'seasons': '季节',
 }
 
-/** 获取分类的中文显示名（无映射时回退到英文 title） */
+/**
+ * 取分类的中文显示名。**未覆盖时返回空串**，调用方需自行回退到官方英文 `title`。
+ *
+ * ⚠️ 不要对返回值做 `split(' ')[0]` 之类的截断 —— 上游新增分类而这里没跟进时，
+ *    空串截断仍为空串还算安全，但一旦有人改成「先拼中英再截断」，就会把
+ *    `Food & Beverage` 显示成 `Food`。取中文一律走本函数，取英文一律用 `cat.title`。
+ */
 export function categoryZhTitle(catId: string): string {
   return categoryZhMap[catId] ?? ''
-}
-
-/** 获取分类的双语显示名（如「文本格式 Text formatting」） */
-export function categoryDisplayName(cat: CategoryInfo): string {
-  const zh = categoryZhMap[cat.id]
-  return zh ? `${zh} ${cat.title}` : cat.title
 }
 
 /** 数据集版本信息（PRD F4.2：面板底部展示） */
@@ -114,6 +117,10 @@ export interface SearchResult {
 interface BuiltIndex {
   entries: IconEntry[]
   names: string[]
+  /** 预计算的小写名字（热路径反复用） */
+  namesLower: string[]
+  /** 预计算的小写分词 */
+  nameTokens: string[][]
   categories: CategoryInfo[]
   /** 图标名 → 在 entries 中的下标 */
   nameToIndex: Map<string, number>
@@ -142,6 +149,8 @@ let indexCache: BuiltIndex | null = null
 
 function buildIndex(): BuiltIndex {
   const entries: IconEntry[] = []
+  const namesLower: string[] = []
+  const nameTokens: string[][] = []
   const nameToIndex = new Map<string, number>()
   const tagToIndices = new Map<string, Set<number>>()
   const catToIndices = new Map<string, Set<number>>()
@@ -152,6 +161,8 @@ function buildIndex(): BuiltIndex {
     const catIds = raw.cats[i] ?? []
     entries.push({ name, nodes, catIds })
     nameToIndex.set(name, i)
+    namesLower.push(name.toLowerCase())
+    nameTokens.push(tokenizeName(name))
 
     // tag 索引（官方 tag 词 → 图标）
     const tagIds = raw.tags[i] ?? []
@@ -186,6 +197,8 @@ function buildIndex(): BuiltIndex {
   return {
     entries,
     names: raw.names,
+    namesLower,
+    nameTokens,
     categories: raw.catList,
     nameToIndex,
     tagToIndices,
@@ -217,13 +230,14 @@ export function categories(): CategoryInfo[] {
 
 /** 按名字取图标（拖拽/点击导入时用） */
 export function iconByName(name: string): IconEntry | undefined {
-  const idx = getIndex().nameToIndex.get(name)
-  return idx === undefined ? undefined : getIndex().entries[idx]
+  const index = getIndex()
+  const idx = index.nameToIndex.get(name)
+  return idx === undefined ? undefined : index.entries[idx]
 }
 
-/** 名字分词：按 - 与空白拆分，保留子串匹配能力 */
+/** 名字分词：按 - 与空白拆分并小写，保留子串匹配能力 */
 function tokenizeName(name: string): string[] {
-  return name.split(/[-_\s]+/).filter(Boolean)
+  return name.toLowerCase().split(/[-_\s]+/).filter(Boolean)
 }
 
 /** 检测字符串是否包含中文字符 */
@@ -244,10 +258,10 @@ function chineseToEnglish(query: string): string[] {
   if (exact) words.push(...exact)
 
   // 子串匹配（跳过已精确匹配的 key）
-  for (const [key, vals] of Object.entries(zhDict)) {
+  for (const key of Object.keys(zhDict)) {
     if (key === trimmed) continue
     if (key.includes(trimmed) || trimmed.includes(key)) {
-      words.push(...vals)
+      words.push(...zhDict[key])
     }
   }
 
@@ -267,13 +281,15 @@ export function searchIcons(options: SearchOptions): SearchResult {
   const cat = options.category
 
   // 分类过滤：先收拢候选集合
-  let candidates: number[]
-  if (cat === 'all') {
-    candidates = index.entries.map((_, i) => i)
-  } else {
-    const set = index.catToIndices.get(cat)
-    candidates = set ? Array.from(set) : []
-  }
+  const isAllCategories = cat === 'all'
+  const candidates: number[] = isAllCategories
+    ? index.entries.map((_, i) => i)
+    : Array.from(index.catToIndices.get(cat) ?? [])
+
+  // O(1) 归属判定。之前用 candidates.includes() 是 O(n²)：
+  // 「全部」视图下每个命中图标都要线性扫 1847 个下标，一次搜索上百万次比较。
+  const candidateSet = isAllCategories ? null : new Set(candidates)
+  const inCategory = (i: number): boolean => candidateSet === null || candidateSet.has(i)
 
   if (!q) {
     return {
@@ -287,27 +303,18 @@ export function searchIcons(options: SearchOptions): SearchResult {
 
   // 中文搜索（M2-A）：查词典得英文候选词 → 走名字/tag 索引
   if (containsChinese(q)) {
-    const englishWords = chineseToEnglish(q)
-    for (const word of englishWords) {
+    for (const word of chineseToEnglish(q)) {
       const w = word.toLowerCase()
-      // 名字子串 + 分词匹配
       for (const i of candidates) {
         if (matched.has(i)) continue
-        const name = index.entries[i].name.toLowerCase()
-        if (name.includes(w)) {
-          matched.add(i)
-          continue
-        }
-        const parts = tokenizeName(index.entries[i].name)
-        if (queryPartsMatch(parts, w)) {
+        if (index.namesLower[i].includes(w) || queryPartsMatch(index.nameTokens[i], w)) {
           matched.add(i)
         }
       }
-      // tag 索引
       const tagSet = index.tagToIndices.get(w)
       if (tagSet) {
         for (const i of tagSet) {
-          if (candidates.includes(i)) matched.add(i)
+          if (inCategory(i)) matched.add(i)
         }
       }
     }
@@ -315,24 +322,8 @@ export function searchIcons(options: SearchOptions): SearchResult {
 
   // 名字子串 + 分词匹配
   for (const i of candidates) {
-    const name = index.entries[i].name
-    const lower = name.toLowerCase()
-    if (lower.includes(q)) {
+    if (index.namesLower[i].includes(q) || queryPartsMatch(index.nameTokens[i], q)) {
       matched.add(i)
-      continue
-    }
-    // 分词：query 的每一段都必须是名字某个分词的子串（按序不强求，宽松匹配）
-    const parts = tokenizeName(name)
-    const allPartMatch = queryPartsMatch(parts, q)
-    if (allPartMatch) {
-      matched.add(i)
-      continue
-    }
-    // 别名：命中即认为该图标可搜到，并提示「已改名为 xxx」
-    const aliasTarget = index.aliases.get(q)
-    if (aliasTarget && aliasTarget === name) {
-      matched.add(i)
-      aliasHit = aliasTarget
     }
   }
 
@@ -340,7 +331,18 @@ export function searchIcons(options: SearchOptions): SearchResult {
   const tagSet = index.tagToIndices.get(q)
   if (tagSet) {
     for (const i of tagSet) {
-      if (candidates.includes(i)) matched.add(i)
+      if (inCategory(i)) matched.add(i)
+    }
+  }
+
+  // 别名维度：官方旧名（264 个，均标记 deprecated）→ 命中现名并提示「已改名」
+  // 提到循环外只查一次，不必对每个候选图标重复查同一个 key
+  const aliasTarget = index.aliases.get(q)
+  if (aliasTarget) {
+    const aliasIndex = index.nameToIndex.get(aliasTarget)
+    if (aliasIndex !== undefined && inCategory(aliasIndex)) {
+      matched.add(aliasIndex)
+      aliasHit = aliasTarget
     }
   }
 
@@ -350,7 +352,7 @@ export function searchIcons(options: SearchOptions): SearchResult {
     const set = index.catToIndices.get(catHit.id)
     if (set) {
       for (const i of set) {
-        if (candidates.includes(i)) matched.add(i)
+        if (inCategory(i)) matched.add(i)
       }
     }
   }
@@ -361,9 +363,12 @@ export function searchIcons(options: SearchOptions): SearchResult {
   }
 }
 
-/** 分词匹配：query 的每个 token 都必须在名字的某个分词中被包含 */
+/**
+ * 分词匹配：query 的每个 token 都必须在名字的某个分词中被包含。
+ * `parts` 与 `query` 都必须已小写（parts 在 buildIndex 时预计算）。
+ */
 function queryPartsMatch(parts: string[], query: string): boolean {
   const tokens = query.split(/[-_\s]+/).filter(Boolean)
   if (!tokens.length) return false
-  return tokens.every((token) => parts.some((p) => p.toLowerCase().includes(token)))
+  return tokens.every((token) => parts.some((p) => p.includes(token)))
 }

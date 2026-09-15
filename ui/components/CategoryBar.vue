@@ -16,7 +16,7 @@
 
 <script lang="ts" setup>
 import { computed } from 'vue'
-import { categoryDisplayName } from '@lib/icons'
+import { categoryZhTitle } from '@lib/icons'
 import type { CategoryInfo } from '@lib/icons'
 
 const props = defineProps<{
@@ -28,15 +28,16 @@ defineEmits<{
   (e: 'update:modelValue', value: string): void
 }>()
 
-/** 「全部」 + 官方分类，分类名只显示中文（M2-A + M2-B 重构） */
+/**
+ * 「全部」 + 官方分类，分类名优先显示中文。
+ *
+ * ⚠️ 不要写 `displayName.split(' ')[0]` 去「取中文部分」：上游新增分类而中文表
+ *    没跟进时，那样会把英文标题截成首词（`Food & Beverage` → `Food`）。
+ *    正确做法是取不到中文就整段回退官方 title。
+ */
 const items = computed<Array<{ id: string; display: string }>>(() => [
   { id: 'all', display: '全部' },
-  ...props.categories.map((c) => {
-    const zh = categoryDisplayName(c)
-    // 只取中文部分，不带英文
-    const zhOnly = zh.split(' ')[0]
-    return { id: c.id, display: zhOnly }
-  }),
+  ...props.categories.map((c) => ({ id: c.id, display: categoryZhTitle(c.id) || c.title })),
 ])
 </script>
 

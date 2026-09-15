@@ -3,14 +3,18 @@
     <!-- 折叠态：一行摘要，点击任意处展开（F2.7） -->
     <button v-if="collapsed" class="summary-row" @click="toggle">
       <span class="summary-text">{{ summary }}</span>
-      <span class="chevron">▾</span>
+      <svg class="chevron chevron--right" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m6 9 6 6 6-6" />
+      </svg>
     </button>
 
     <!-- 展开态：尺寸 / 描边 / 绝对描边 / 颜色 -->
     <div v-else class="style-fields">
       <div class="style-header" @click="toggle">
         <span class="summary-text">{{ summary }}</span>
-        <span class="chevron">▾</span>
+        <svg class="chevron chevron--up" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
       </div>
 
       <!-- 尺寸滑块 -->
@@ -24,8 +28,8 @@
           <div class="slider-track-fill" :style="{ width: sizeFillPercent + '%' }"></div>
           <input
             type="range"
-            min="16"
-            max="96"
+            :min="SIZE_RANGE.min"
+            :max="SIZE_RANGE.max"
             step="2"
             :value="style.size"
             @input="update('size', Number(($event.target as HTMLInputElement).value))"
@@ -44,8 +48,8 @@
           <div class="slider-track-fill" :style="{ width: strokeFillPercent + '%' }"></div>
           <input
             type="range"
-            min="0.5"
-            max="6"
+            :min="STROKE_RANGE.min"
+            :max="STROKE_RANGE.max"
             step="0.1"
             :value="style.strokeWidth"
             @input="update('strokeWidth', Number(($event.target as HTMLInputElement).value))"
@@ -87,7 +91,7 @@
 <script lang="ts" setup>
 import { computed } from 'vue'
 import type { StyleState } from '@lib/store'
-import { styleSummary } from '@lib/store'
+import { SIZE_RANGE, STROKE_RANGE, styleSummary } from '@lib/store'
 
 const props = defineProps<{
   style: StyleState
@@ -101,16 +105,14 @@ const emit = defineEmits<{
 
 const summary = computed(() => styleSummary(props.style))
 
-/** 滑块已选区间百分比 */
-const sizeFillPercent = computed(() => {
-  const min = 16, max = 96
-  return ((props.style.size - min) / (max - min)) * 100
-})
+/** 滑块已选区间百分比（范围来自 store，与 input 的 min/max 同源） */
+const sizeFillPercent = computed(
+  () => ((props.style.size - SIZE_RANGE.min) / (SIZE_RANGE.max - SIZE_RANGE.min)) * 100
+)
 
-const strokeFillPercent = computed(() => {
-  const min = 0.5, max = 6
-  return ((props.style.strokeWidth - min) / (max - min)) * 100
-})
+const strokeFillPercent = computed(
+  () => ((props.style.strokeWidth - STROKE_RANGE.min) / (STROKE_RANGE.max - STROKE_RANGE.min)) * 100
+)
 
 function toggle(): void {
   emit('toggle')
@@ -177,11 +179,44 @@ function update<K extends keyof StyleState>(key: K, value: StyleState[K]): void 
   white-space: nowrap;
 }
 
+/*
+ * 折叠/展开指示箭头（F2.7）。
+ *
+ * ⚠️ 不要换回 `▸` / `▴` 这类文字字形 —— 原来用 `font-size: 10px` 的字形 + 最浅一档
+ *    文字色，实测在深色面板下基本看不见（用户 2026-09-15 反馈「三角标太小根本看不到」）。
+ *    文字字形的实际墨迹只占字号的一小半，10px 字号渲染出来只有 4~5px；
+ *    SVG 是几何尺寸，14px 就是实打实的 14px，且不受字体/回退字体影响。
+ *
+ * 基础形状是向下的 chevron；两态靠旋转复用同一段路径，语义与旧版一致：
+ *   收起（▸）→ 转 -90°；展开（▴）→ 转 180°。
+ */
 .chevron {
-  color: var(--mg-text-tertiary);
-  font-size: 10px;
   flex-shrink: 0;
+  width: 14px;
+  height: 14px;
   margin-left: 4px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--mg-text-secondary);
+  /* 显式指定旋转基准：别依赖浏览器对 transform-box 初始值的实现差异
+     （早期 SVG 规范把原点当 0 0，会让箭头转出可视区）。路径中心就在 12,12，
+     取 viewBox 中心即可稳定居中。 */
+  transform-box: view-box;
+  transform-origin: center;
+  transition: transform 0.15s, color 0.15s;
+}
+.chevron--right {
+  transform: rotate(-90deg);
+}
+.chevron--up {
+  transform: rotate(180deg);
+}
+.summary-row:hover .chevron,
+.style-header:hover .chevron {
+  color: var(--mg-text);
 }
 
 /* ===== 滑块 ===== */
