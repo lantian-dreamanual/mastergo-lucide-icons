@@ -5,7 +5,8 @@
  *  - 名字与自身 tags 重叠 83% 为零 → 名字索引与 tag 索引必须同时建、缺一不可
  *  - 官方旧名 aliases 264 个全部 deprecated → 必须并入搜索，命中时提示「已改名为 xxx」（F1.3）
  *  - 搜索维度：图标名（- 分词 + 子串）、官方 tag、分类名、aliases；搜索与分类叠加取交集（F1.4）
- *  - 中文搜索（M2-A）：中文词 → 词典查英文候选词 → 走既有名字/tag 索引 → 合并去重
+ *  - 中文搜索（方案 A）：每个图标直接挂中文关键词（data/icon-zh.json，scripts/gen-icon-zh.py 生成），
+ *    中文 query 与关键词匹配即命中；运行时零联网，数据全部内置 bundle
  *
  * 性能约定：所有「按名字」的重复计算（小写化、分词）都在 buildIndex 时预计算，
  * 搜索热路径里只做比较，不做字符串切分 —— 输入框是逐字触发的，这个差别很实际。
@@ -13,12 +14,25 @@
  * 本文件不依赖 mg，UI 侧与（如需）主线程均可复用。
  */
 
-import dataset from '../data/lucide-icons.json'
-import zhDictRaw from '../data/zh-dict.json'
+import { ungzip } from 'pako'
+import { DATASET_GZ_B64, ICON_ZH_GZ_B64 } from '../data/compressed'
 import type { IconNode } from './svg'
 
-/** 中文搜索词典（M2-A）：中文词 → 英文词数组 */
-const zhDict = zhDictRaw as Record<string, string[]>
+/**
+ * 数据加载（2026-10-15 起改为构建期 gzip + base64，运行时解压）：
+ * 上线版面板的打开速度与 dist/index.html 体积直接相关（MasterGo 服务器整包下发），
+ * 且 CJK 在 esbuild 输出里被 \uXXXX 转义、体积翻倍。压成 gzip+base64 后
+ * 数据集 535KB→165KB、中文词 164KB→48KB。同步解压耗时几十 ms，可忽略。
+ */
+function inflateJson(b64: string): unknown {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return JSON.parse(new TextDecoder().decode(ungzip(bytes)))
+}
+
+/** 每图标的中文关键词（方案 A）：图标名 → 中文词数组 */
+const iconZh = inflateJson(ICON_ZH_GZ_B64) as Record<string, string[]>
 
 /** 42 分类的中文显示名（M2-A：分类条双语显示） */
 const categoryZhMap: Record<string, string> = {
@@ -31,7 +45,7 @@ const categoryZhMap: Record<string, string> = {
   'science': '科学',
   'multimedia': '多媒体',
   'notifications': '通知',
-  'home': '主页',
+  'home': '家居',
   'connectivity': '连接',
   'devices': '设备',
   'time': '时间与日历',
@@ -130,9 +144,11 @@ interface BuiltIndex {
   catToIndices: Map<string, Set<number>>
   /** 别名 → 现名 */
   aliases: Map<string, string>
+  /** 中文词 → 图标下标集合（方案 A：关键词倒排） */
+  zhToIndices: Map<string, Set<number>>
 }
 
-const raw = dataset as unknown as {
+const raw = inflateJson(DATASET_GZ_B64) as unknown as {
   version: DataVersion
   count: number
   names: string[]
@@ -194,6 +210,21 @@ function buildIndex(): BuiltIndex {
     aliases.set(alias, target)
   }
 
+  // 中文关键词倒排（方案 A）：中文词 → 图标下标集合
+  const zhToIndices = new Map<string, Set<number>>()
+  for (let i = 0; i < raw.names.length; i++) {
+    const words = iconZh[raw.names[i]]
+    if (!words) continue
+    for (const w of words) {
+      let set = zhToIndices.get(w)
+      if (!set) {
+        set = new Set()
+        zhToIndices.set(w, set)
+      }
+      set.add(i)
+    }
+  }
+
   return {
     entries,
     names: raw.names,
@@ -204,6 +235,7 @@ function buildIndex(): BuiltIndex {
     tagToIndices,
     catToIndices,
     aliases,
+    zhToIndices,
   }
 }
 
@@ -246,26 +278,28 @@ function containsChinese(s: string): boolean {
 }
 
 /**
- * 中文查询 → 英文候选词数组（M2-A）。
- * 策略：精确匹配 key + 子串匹配（query 包含 key 或 key 包含 query）。
+ * 中文 query → 命中的中文关键词（方案 A）。
+ * 策略：精确匹配 key + 子串匹配（query 包含 key 或 key 包含 query），
+ * 与旧词典版一致，保证「网口」能带出「网口」「网端口」这类变形。
  */
-function chineseToEnglish(query: string): string[] {
+function matchZhWords(query: string): string[] {
+  const index = getIndex()
   const trimmed = query.trim()
   const words: string[] = []
 
-  // 精确匹配
-  const exact = zhDict[trimmed]
-  if (exact) words.push(...exact)
-
-  // 子串匹配（跳过已精确匹配的 key）
-  for (const key of Object.keys(zhDict)) {
-    if (key === trimmed) continue
-    if (key.includes(trimmed) || trimmed.includes(key)) {
-      words.push(...zhDict[key])
+  for (const key of index.zhToIndices.keys()) {
+    if (key === trimmed) {
+      words.push(key)
+      continue
+    }
+    // 子串匹配仅对双字及以上的词开放：单字词（山/日/门）参与子串会把
+    // 「过山车」放大成整座山系，噪声远大于收益
+    if (key.length >= 2 && trimmed.length >= 2 && (key.includes(trimmed) || trimmed.includes(key))) {
+      words.push(key)
     }
   }
 
-  return [...new Set(words)]
+  return words
 }
 
 /**
@@ -301,21 +335,13 @@ export function searchIcons(options: SearchOptions): SearchResult {
   const matched = new Set<number>()
   let aliasHit: string | null = null
 
-  // 中文搜索（M2-A）：查词典得英文候选词 → 走名字/tag 索引
+  // 中文搜索（方案 A）：直接匹配每图标的中文关键词（倒排索引，O(命中词数)）
   if (containsChinese(q)) {
-    for (const word of chineseToEnglish(q)) {
-      const w = word.toLowerCase()
-      for (const i of candidates) {
-        if (matched.has(i)) continue
-        if (index.namesLower[i].includes(w) || queryPartsMatch(index.nameTokens[i], w)) {
-          matched.add(i)
-        }
-      }
-      const tagSet = index.tagToIndices.get(w)
-      if (tagSet) {
-        for (const i of tagSet) {
-          if (inCategory(i)) matched.add(i)
-        }
+    for (const word of matchZhWords(q)) {
+      const set = index.zhToIndices.get(word)
+      if (!set) continue
+      for (const i of set) {
+        if (inCategory(i)) matched.add(i)
       }
     }
   }

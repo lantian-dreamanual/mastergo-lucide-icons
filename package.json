@@ -1,6 +1,6 @@
 {
   "name": "mastergo-lucide-icons",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "description": "MasterGo 插件：把 Lucide 图标集导入画布，中英文可搜、样式可调、导入为可编辑矢量图层",
   "main": "index.js",
   "license": "MIT",
@@ -18,15 +18,17 @@
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "clean:assets": "node -e \"require('fs').rmSync('dist/assets',{recursive:true,force:true})\"",
-    "build": "npm run clean && npm run build:ui && npm run build:main && npm run clean:assets",
+    "build": "npm run clean && node scripts/compress-data.mjs && npm run build:ui && npm run build:main && npm run clean:assets",
     "build:ui": "cross-env TARGET=ui vite build",
     "build:main": "cross-env TARGET=main vite build",
-    "sync:icons": "python3 scripts/sync-icons.py"
+    "sync:icons": "python3 scripts/sync-icons.py && python3 scripts/gen-icon-zh.py && python3 scripts/audit-zh.py"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/pako": "^2.0.4",
     "@vitejs/plugin-vue": "^2.3.4",
     "cross-env": "^7.0.3",
+    "pako": "^3.0.2",
     "typescript": "^5.7.2",
     "vite": "^2.9.18",
     "vite-plugin-singlefile": "^0.7.1"

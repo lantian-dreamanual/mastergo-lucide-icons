@@ -21,7 +21,19 @@
       <div class="slider-row">
         <div class="slider-label">
           <span>尺寸</span>
-          <span class="val">{{ style.size }}px</span>
+          <span class="val-wrap">
+            <input
+              class="val-input"
+              type="text"
+              inputmode="decimal"
+              v-model="sizeDraft"
+              @change="commit('size')"
+              @blur="commit('size')"
+              @keydown.enter="($event.target as HTMLInputElement).blur()"
+              @keydown.esc="sizeDraft = String(props.style.size)"
+            />
+            <span class="val-unit">px</span>
+          </span>
         </div>
         <div class="slider-track-wrap">
           <div class="slider-track-bg"></div>
@@ -30,7 +42,7 @@
             type="range"
             :min="SIZE_RANGE.min"
             :max="SIZE_RANGE.max"
-            step="2"
+            :step="SIZE_RANGE.step"
             :value="style.size"
             @input="update('size', Number(($event.target as HTMLInputElement).value))"
           />
@@ -41,7 +53,20 @@
       <div class="slider-row">
         <div class="slider-label">
           <span>描边宽度</span>
-          <span class="val">{{ style.strokeWidth.toFixed(1) }}</span>
+          <span class="val-wrap">
+            <input
+              class="val-input"
+              type="text"
+              inputmode="decimal"
+              v-model="strokeDraft"
+              @change="commit('strokeWidth')"
+              @blur="commit('strokeWidth')"
+              @keydown.enter="($event.target as HTMLInputElement).blur()"
+              @keydown.esc="strokeDraft = String(props.style.strokeWidth)"
+            />
+            <!-- 绝对宽度模式下描边值就是实际渲染像素，带 px；相对模式是 24 网格相对值，无单位 -->
+            <span v-if="style.absoluteStrokeWidth" class="val-unit">px</span>
+          </span>
         </div>
         <div class="slider-track-wrap">
           <div class="slider-track-bg"></div>
@@ -50,7 +75,7 @@
             type="range"
             :min="STROKE_RANGE.min"
             :max="STROKE_RANGE.max"
-            step="0.1"
+            :step="STROKE_RANGE.step"
             :value="style.strokeWidth"
             @input="update('strokeWidth', Number(($event.target as HTMLInputElement).value))"
           />
@@ -89,7 +114,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { StyleState } from '@lib/store'
 import { SIZE_RANGE, STROKE_RANGE, styleSummary } from '@lib/store'
 
@@ -121,6 +146,37 @@ function toggle(): void {
 /** 单字段更新：emit 整个 style 对象，触发父组件响应式更新 */
 function update<K extends keyof StyleState>(key: K, value: StyleState[K]): void {
   emit('update:style', { ...props.style, [key]: value })
+}
+
+/**
+ * 数值输入框（2026-10-15）：滑块管手感，输入框管精确值（设计师交接要 18px / 1.75 这类数）。
+ * 草稿是字符串 —— 允许打字过程中的「1.」这类中间态，提交时才解析。
+ */
+const sizeDraft = ref(String(props.style.size))
+const strokeDraft = ref(String(props.style.strokeWidth))
+
+// 滑块拖动 / 外部状态变化 → 同步草稿
+watch(
+  () => props.style.size,
+  (v) => { sizeDraft.value = String(v) }
+)
+watch(
+  () => props.style.strokeWidth,
+  (v) => { strokeDraft.value = String(v) }
+)
+
+/** 提交输入框：非法值回退，合法值夹取到范围并保留两位小数 */
+function commit(key: 'size' | 'strokeWidth'): void {
+  const range = key === 'size' ? SIZE_RANGE : STROKE_RANGE
+  const draft = key === 'size' ? sizeDraft : strokeDraft
+  const parsed = Number(draft.value)
+  if (!Number.isFinite(parsed)) {
+    draft.value = String(props.style[key])
+    return
+  }
+  const next = Math.round(Math.min(range.max, Math.max(range.min, parsed)) * 100) / 100
+  if (next !== props.style[key]) update(key, next)
+  else draft.value = String(props.style[key])
 }
 </script>
 
@@ -235,6 +291,38 @@ function update<K extends keyof StyleState>(key: K, value: StyleState[K]): void 
   color: var(--mg-text);
   font-variant-numeric: tabular-nums;
   font-weight: 500;
+}
+
+/* ===== 数值输入框（滑块的精确值入口） ===== */
+.val-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.val-input {
+  width: 40px;
+  padding: 1px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mg-text);
+  font-family: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-align: right;
+}
+.val-input:hover {
+  border-color: var(--mg-border);
+}
+.val-input:focus {
+  outline: none;
+  border-color: var(--mg-accent, #4d9ef7);
+  background: var(--mg-bg);
+}
+.val-unit {
+  color: var(--mg-text-secondary);
+  font-size: 11px;
 }
 
 /* 滑块轨道：背景 + 已选填充 + 原生 input 叠加 */

@@ -90,10 +90,14 @@ export function preferredIconColor(): string {
   return prefersDarkUi() ? '#ffffff' : '#000000'
 }
 
-/** 尺寸滑块范围（必须与 StyleBar 里 input[type=range] 的 min/max 一致） */
-export const SIZE_RANGE = { min: 16, max: 96 } as const
-/** 描边滑块范围（同上） */
-export const STROKE_RANGE = { min: 0.5, max: 6 } as const
+/**
+ * 滑块参数的唯一真相源（min/max/step 都在这，StyleBar 只做绑定）。
+ *
+ * ⚠️ 描边步进是 0.25：与 lucide.dev / lucide 源码的档位一致（1.5 / 1.75 / 2），
+ *    0.1 步进会产出 1.7 这类前端代码里写不出来的值（2026-10-15 对齐官网）。
+ */
+export const SIZE_RANGE = { min: 16, max: 96, step: 2 } as const
+export const STROKE_RANGE = { min: 0.5, max: 6, step: 0.25 } as const
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
@@ -160,9 +164,10 @@ export function sanitizePersisted(
   }
 }
 
-/** 折叠态摘要文案（F2.7：如 `24px · 描边 2 · 绝对 · #ffffff`） */
+/** 折叠态摘要文案（F2.7：如 `24px · 描边 2 · 绝对 · #ffffff`）。
+ * 绝对宽度模式下描边值是实际渲染像素，带 px；相对模式是 24 网格相对值，无单位。 */
 export function styleSummary(state: StyleState): string {
-  const parts = [`${state.size}px`, `描边 ${state.strokeWidth}`]
+  const parts = [`${state.size}px`, `描边 ${state.strokeWidth}${state.absoluteStrokeWidth ? 'px' : ''}`]
   if (state.absoluteStrokeWidth) parts.push('绝对')
   parts.push(state.color)
   return parts.join(' · ')

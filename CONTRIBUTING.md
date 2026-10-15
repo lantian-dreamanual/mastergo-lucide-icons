@@ -51,9 +51,13 @@ Lucide 图标库/
 │       └── IconGrid.vue     # 虚拟滚动网格（拖拽 + 点击）
 ├── data/
 │   ├── lucide-icons.json    # 紧凑数据集（1847 图标 / 535KB）
-│   └── zh-dict.json         # 中文搜索词典（人工可增补，不被 sync 覆盖）
+│   ├── icon-zh.json         # 每图标中文关键词（方案 A，gen-icon-zh.py 生成，可人工增补）
+│   ├── compressed.ts        # 构建期生成的 gzip+base64 数据（勿手编；已提交，CI typecheck 依赖它）
+│   └── zh-dict.json         # 旧版中文词典（gen-icon-zh.py 的翻译素材源，已不进 bundle）
 └── scripts/
-    └── sync-icons.py        # 数据同步脚本（固定 commit + 结构校验 + 离线通道）
+    ├── sync-icons.py        # 数据同步脚本（固定 commit + 结构校验 + 离线通道）
+    ├── gen-icon-zh.py       # 中文关键词生成（词典反推 + 人工词表，幂等可重复跑）
+    └── compress-data.mjs    # 构建期把两个 JSON 压成 gzip+base64（npm run build 自动跑）
 ```
 
 ## 硬约束（不遵守会导致线上问题）
@@ -82,10 +86,12 @@ Lucide 图标库/
 这是**手动流程**，插件不做运行时自动更新：
 
 ```bash
-npm run sync:icons   # 1) 重新生成数据集
-npm run build        # 2) 重新构建
+npm run sync:icons   # 1) 重新生成数据集 + 中文关键词（gen-icon-zh.py 已挂链尾）
+npm run build        # 2) 重新构建（构建期自动压缩数据为 gzip+base64，即 data/compressed.ts）
                      # 3) 到 MasterGo 客户端重新上传插件
 ```
+
+数据更新后 `data/compressed.ts` 会随之变化，**记得一并提交**（CI 的 typecheck 依赖它存在）。
 
 同步脚本的几种用法：
 
@@ -102,7 +108,7 @@ python3 scripts/sync-icons.py --check                     # 只看现有产物�
 - `codeload` 的大 tarball 可能断流；脚本内置重试，仍失败就走 `--from-tarball` 离线通道
 - 数据集里的分类与 tag 来自每个图标的元数据（`icons/<name>.json`），不是 `categories/*.json`——后者只有分类标题与代表图标
 - 提交数据集更新时请**单独一个 PR**，说明上游 commit SHA
-- 中文搜索词典在 `data/zh-dict.json`，格式是「中文词 → 英文关键词数组」，可直接增补，不会被 `sync:icons` 覆盖
+- 中文搜索关键词在 `data/icon-zh.json`（图标名 → 中文词数组，每图标至多 5 个）。`npm run sync:icons` 会自动重跑 `gen-icon-zh.py`：新图标由词典反推自动获得中文词，报告里「无中文词」的图标需要在 `scripts/gen-icon-zh.py` 的 `CURATED` 词表补词后重跑。高频搜索词（如「齿轮」「网口」）直接编辑 `icon-zh.json` 或加进 `CURATED`，不会被覆盖
 
 ## 提交 PR
 

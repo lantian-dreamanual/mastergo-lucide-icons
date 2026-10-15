@@ -41,7 +41,7 @@ REPO = "lucide-icons/lucide"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_PATH = os.path.join(ROOT, "data", "lucide-icons.json")
 
-# 结构合理性硬阈值（2026-09-14 实测基线：1837 图标 / 42 分类 / tags 覆盖 100%）
+# 结构合理性硬阈值（2026-09-15 实测基线：1847 图标 / 42 分类 / tags 覆盖 100%）
 MIN_ICONS, MAX_ICONS = 1000, 5000
 MIN_CATEGORIES = 30
 MIN_TAGS_COVERAGE = 0.95  # 有 tags 的图标占比
