@@ -185,6 +185,7 @@ def build_dataset(version, svgs, metas, cat_titles):
     names, nodes_all, tags_all, cats_all = [], [], [], []
     aliases = {}
     no_tags, no_cats = 0, 0
+    empty_attr: list = []
 
     for name in sorted(svgs):
         meta = metas[name]
@@ -200,6 +201,11 @@ def build_dataset(version, svgs, metas, cat_titles):
         ns = parse_svg(svgs[name])
         if not ns:
             fail_structure(f"图标 {name} 解析不到任何图形节点")
+        for tag, attrs in ns:
+            if not attrs:
+                # 属性为空的节点渲染到原点（SVG 默认 0,0），表现为左上角飞线。
+                # 2026-10-21 voicemail 实测：ATTR_RE 漏数字导致 134 个 line 坐标丢失。
+                empty_attr.append((name, tag))
 
         tids = []
         for t in tags:
@@ -220,6 +226,9 @@ def build_dataset(version, svgs, metas, cat_titles):
         cats_all.append(cids)
 
     n = len(names)
+    if empty_attr:
+        sample = "、".join(f"{name}({tag})" for name, tag in empty_attr[:5])
+        fail_structure(f"{len(empty_attr)} 个图形节点属性为空（几何会渲染到原点），示例：{sample}")
     if no_tags / n > 1 - MIN_TAGS_COVERAGE:
         fail_structure(f"tags 覆盖率 {1 - no_tags / n:.1%} 低于阈值 {MIN_TAGS_COVERAGE:.0%}")
     if no_cats / n > 1 - MIN_CATS_COVERAGE:
