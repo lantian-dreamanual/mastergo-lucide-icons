@@ -48,7 +48,9 @@ MIN_TAGS_COVERAGE = 0.95  # 有 tags 的图标占比
 MIN_CATS_COVERAGE = 0.95  # 有 categories 的图标占比
 
 SVG_TAG_RE = re.compile(r"<(path|circle|rect|line|polyline|polygon|ellipse)\b([^>]*?)/?>")
-ATTR_RE = re.compile(r'([a-zA-Z-]+)="([^"]*)"')
+ATTR_RE = re.compile(r'([a-zA-Z0-9-]+)="([^"]*)"')
+# ⚠️ 字符类必须含数字：line 的坐标属性叫 x1/x2/y1/y2，漏了数字会把
+# 134 个图标的 line 坐标整个丢掉，渲染成左上角一个点（2026-10-21 voicemail 实测）
 GEOM_ATTRS = ("d", "cx", "cy", "r", "x", "y", "width", "height",
               "x1", "y1", "x2", "y2", "points", "rx", "ry")
 
