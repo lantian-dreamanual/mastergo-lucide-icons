@@ -144,6 +144,8 @@ interface BuiltIndex {
   catToIndices: Map<string, Set<number>>
   /** 别名 → 现名 */
   aliases: Map<string, string>
+  /** tag 词全表（tag 维度做子串匹配用，2026-10-21 起） */
+  tagDict: string[]
   /** 中文词 → 图标下标集合（方案 A：关键词倒排） */
   zhToIndices: Map<string, Set<number>>
 }
@@ -235,6 +237,7 @@ function buildIndex(): BuiltIndex {
     tagToIndices,
     catToIndices,
     aliases,
+    tagDict: raw.tagDict,
     zhToIndices,
   }
 }
@@ -353,22 +356,26 @@ export function searchIcons(options: SearchOptions): SearchResult {
     }
   }
 
-  // tag 维度
-  const tagSet = index.tagToIndices.get(q)
-  if (tagSet) {
-    for (const i of tagSet) {
+  // tag 维度：子串匹配（tag 含 q 即命中）。此前是精确匹配，搜「phon」落空、
+  // 搜「phone」才命中的 12 个 tag 图标会凭空消失，结果随输入先多后少（2026-10-21）。
+  // 子串匹配保证打字到一半也带出完整 tag 命中的图标，结果单调收窄。
+  for (const tag of index.tagDict) {
+    if (!tag.includes(q)) continue
+    const set = index.tagToIndices.get(tag)
+    if (!set) continue
+    for (const i of set) {
       if (inCategory(i)) matched.add(i)
     }
   }
 
-  // 别名维度：官方旧名（264 个，均标记 deprecated）→ 命中现名并提示「已改名」
-  // 提到循环外只查一次，不必对每个候选图标重复查同一个 key
-  const aliasTarget = index.aliases.get(q)
-  if (aliasTarget) {
-    const aliasIndex = index.nameToIndex.get(aliasTarget)
+  // 别名维度：官方旧名（264 个，均标记 deprecated）。子串命中即加入结果；
+  // 完整命中旧名才提示「已改名为 xxx」（F1.3）
+  for (const [alias, target] of index.aliases) {
+    if (!alias.includes(q)) continue
+    const aliasIndex = index.nameToIndex.get(target)
     if (aliasIndex !== undefined && inCategory(aliasIndex)) {
       matched.add(aliasIndex)
-      aliasHit = aliasTarget
+      if (alias === q) aliasHit = target
     }
   }
 
