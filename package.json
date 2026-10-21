@@ -1,6 +1,6 @@
 {
   "name": "mastergo-lucide-icons",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "MasterGo 插件：把 Lucide 图标集导入画布，中英文可搜、样式可调、导入为可编辑矢量图层",
   "main": "index.js",
   "license": "MIT",
